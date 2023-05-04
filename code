@@ -28,6 +28,8 @@ void uart_receive_isr(uint8_t rx){
 		uart_activated = 0; //New code
 		uart_print("\n\r");
 		
+		
+		
 		if(!corrupted_data){
 			if((value % 2) == 0){
 				leds_set(0,0,0);
@@ -38,6 +40,7 @@ void uart_receive_isr(uint8_t rx){
 				uart_print("On!\n\r");
 			}
 		}
+		uart_print("Give AEM: ");
 	}
 	else{
 		
@@ -92,13 +95,21 @@ int main(void){
 		uart_init(115200);
     uart_enable();
 
-	
+		/*Globally enable interrupts by setting PRIMASK bit to 0 (in Cortex-M processor). Otherwise maskable 
+			interrupts wont be executed.*/
 		__enable_irq();
 
-	
+		/*
+			Prepare interrupts for debug purposes (as outputs), one runs in main and one in the interrupt
+			we want to debug.
+		*/
     gpio_set_mode(P_DBG_ISR,Output);
     gpio_set_mode(P_DBG_MAIN,Output);
 
+		/* 
+			Prepare the P_SW interrupt, which is triggered when the button is pressed. 
+			This is an output interrupt (it is executed when the button is released not pressed).
+		*/
     gpio_set_mode(P_SW, PullUp); 
     gpio_set_trigger(P_SW, Rising);
 
@@ -109,6 +120,8 @@ int main(void){
 			
 		NVIC_SetPriority(USART2_IRQn, button_priority + 1);
 		gpio_get(P_SW);
+		
+		uart_print("Give AEM: ");
 
     while(1){}
 
