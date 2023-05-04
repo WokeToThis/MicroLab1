@@ -1,84 +1,162 @@
 #include <stdio.h>
 #include "uart.h"
-#include "queue.h"
 #include "leds.h"
 #include "gpio.h"
 
-
-Queue queue;
-static int counter;
-static uint8_t last_value;
-
+/*
+	An interrupt service routine that is called when an interrupt 
+	from the uart has been triggered.
+*/
 void uart_receive_isr(uint8_t rx);
-void odd_isr(uint8_t a);
+
+/*
+	An interrupt service routine that is called when an interrupt 
+	from the button has been triggered.
+*/
 void button_pressed_isr(int src);
 
-int uart_activated; //New code
-int corrupted_data; // New code
+/*
+	A global variable that stores the times the button has been pressed.
+*/
+static int counter;
+
+/*
+	A global variable that stores the last value that has been entered.
+*/
+static uint8_t last_value;
 
 
 void uart_receive_isr(uint8_t rx){
 	
+	/*
+			Set the debug pin to high, (an interrupt has been triggered).
+	*/
 	gpio_set(P_DBG_ISR,1);
 	
+	/*
+		Echo the character that has been received by the uart channel so it can 
+		be seen in the console.
+	*/
 	uart_tx(rx);
 	
-	if(rx == 13){		
+	/*
+		If the ascii character 10 (new line - \n) is received ignore it.
+		When enter is pressed it should send both \n and \r so only one 
+		of them inform the program that the input has ended.
+		This is done to prevent the programm from saving \n as a last value.
+	*/
+	if(rx == 10){}
+	
+	/*
+		If the input character is 13 (carriage return - \r) then the input
+		has been terminated.
+	*/
+	else if(rx == 13){		
+		
+		/*
+			Turn the ascii character of the last digit to an integer. 
+			0 has the value 48.
+		*/
 		int value = last_value - 48;
-		uart_activated = 0; //New code
-		uart_print("\n\r");
 		
+		/*
+			Change the line and return the carriage (return to the start of the
+		  new line).
+		*/
+		uart_print("\n\r");		
 		
-		
-		if(!corrupted_data){
-			if((value % 2) == 0){
+		/*
+			If the value of the last character is even and the led is ON 
+			turn off the LED and print the change of the LED state.
+		*/
+		if((value % 2) == 0){
+			
+			if( gpio_get(P_LED_R)){
 				leds_set(0,0,0);
-				uart_print("Off!\n\r");
+				uart_print("The LED has been turned off\r\n");
 			}
-			else{
-				leds_set(1,0,0);
-				uart_print("On!\n\r");
-			}
+			
 		}
+		
+		/*
+			If the value of the last character is odd and the LED is OFF 
+			turn on the LED and print the change of the LED state.
+		*/
+		else{
+			
+			if( gpio_get(P_LED_R) == 0){
+				leds_set(1,0,0);
+				uart_print("The LED has been turned on\r\n");
+			}
+			
+		}
+		
+		/*
+			The last input has been handled so ask for a new input.
+		*/
 		uart_print("Give AEM: ");
 	}
+	
+	/*
+		If the input character is not \r or \n save it as the new last value.
+	*/
 	else{
-		
-		corrupted_data = 0;
-		
-		uart_activated = 1; //New code
 		last_value = rx;
 	}
 	
+	/*
+			Set the debug pin to low, (the interrupt has been handled).
+	*/
 	gpio_set(P_DBG_ISR, 0);
 	
 }
 
 void button_pressed_isr(int src){
-	
+		/*
+			Set the debug pin to high, (an interrupt has been triggered).
+		*/
     gpio_set(P_DBG_ISR,1);
-	
-		if (uart_activated){
-			corrupted_data = 1;
-		}
-			
 
+		/*
+			Check if the actual pin of the port that triggered the interupt
+			was the one that triggered it.
+		*/
 		if(src & GET_PIN_INDEX(P_SW)){  
-				counter++;
+			
+			/*
+				Button was pressed so increase the counter of the times
+				the button has been pressed.
+			*/
+			counter++; 
 		
+			/*
+				If the output pin to the led is high (gpio_get(P_LED_R) returns not 0) 
+				the led is on, so turn it off and print the change.
+			*/
 			if( gpio_get(P_LED_R) ){
 					leds_set(0,0,0);
-					uart_print("Off!\n\r");
+					uart_print("The LED has been turned off\r\n");
 			}
+			/*
+				If the output pin to the led is low (the led is off), turn it on
+				and print the change.
+			*/
 			else {
 					leds_set(1,0,0);
-					uart_print("On!\n\r");
+					uart_print("The LED has been turned on\r\n");
 			}
 		
+			/*
+				Print the number of times the button has been pressed stored in the
+				variable counter.
+			*/
 			char word[20];
 			sprintf(word,"Counter: %d\n\r", counter);
 			uart_print(word);
 	}
+		/*
+			Set the debug pin to low, (the interrupt has been handled).
+		*/
     gpio_set(P_DBG_ISR, 0);
 
 }
@@ -86,17 +164,22 @@ void button_pressed_isr(int src){
 
 
 int main(void){
-	
-		// Initializing leds light and seting to off.
+		/* 
+			Initializing leds light and seting to off.
+		*/
     leds_init();
     leds_set(0,0,0);
 
-		// Initializing and enabling uart channel.
+		/*
+			Initializing and enabling uart channel.
+		*/
 		uart_init(115200);
     uart_enable();
 
-		/*Globally enable interrupts by setting PRIMASK bit to 0 (in Cortex-M processor). Otherwise maskable 
-			interrupts wont be executed.*/
+		/*
+			Globally enable interrupts by setting PRIMASK bit to 0 (in Cortex-M processor). Otherwise maskable 
+			interrupts wont be executed.
+		*/
 		__enable_irq();
 
 		/*
@@ -108,21 +191,34 @@ int main(void){
 
 		/* 
 			Prepare the P_SW interrupt, which is triggered when the button is pressed. 
-			This is an output interrupt (it is executed when the button is released not pressed).
+			This is an input interrupt (it is executed when the button is released not pressed).
+			Then bind the interrupt to the interrupt service routine "button_pressed_isr()".
 		*/
-    gpio_set_mode(P_SW, PullUp); 
-    gpio_set_trigger(P_SW, Rising);
-
-    gpio_set_callback(P_SW,button_pressed_isr );
+    gpio_set_mode(P_SW, Input); // CHECK Input
+    gpio_set_trigger(P_SW, Rising); // CHECK Falling
+		gpio_set_callback(P_SW, button_pressed_isr );
+		
+		/*
+			Bind the interrupt triggered by the uart to the interrupt service routine "uart_receive_isr()"
+		*/
 		uart_set_rx_callback(uart_receive_isr);
 		
-		int button_priority = NVIC_GetPriority(EXTI15_10_IRQn);
-			
+		/*
+			Set the priority of the uart reveive interrupt to one integer higher than the
+			priority of the button pressed interrupt so that the button interrupt will have 
+			higher priority.
+		*/
+		int button_priority = NVIC_GetPriority(EXTI15_10_IRQn);	
 		NVIC_SetPriority(USART2_IRQn, button_priority + 1);
-		gpio_get(P_SW);
 		
-		uart_print("Give AEM: ");
+		/*
+			Ask for user input.
+		*/
+		uart_print("\n\rGive AEM: ");
 
+		/*
+			Do other stuff until an interrupt is triggered.
+		*/
     while(1){}
 
 }
