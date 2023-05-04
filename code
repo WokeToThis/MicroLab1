@@ -1,0 +1,115 @@
+#include <stdio.h>
+#include "uart.h"
+#include "queue.h"
+#include "leds.h"
+#include "gpio.h"
+
+
+Queue queue;
+static int counter;
+static uint8_t last_value;
+
+void uart_receive_isr(uint8_t rx);
+void odd_isr(uint8_t a);
+void button_pressed_isr(int src);
+
+int uart_activated; //New code
+int corrupted_data; // New code
+
+
+void uart_receive_isr(uint8_t rx){
+	
+	gpio_set(P_DBG_ISR,1);
+	
+	uart_tx(rx);
+	
+	if(rx == 13){		
+		int value = last_value - 48;
+		uart_activated = 0; //New code
+		uart_print("\n\r");
+		
+		if(!corrupted_data){
+			if((value % 2) == 0){
+				leds_set(0,0,0);
+				uart_print("Off!\n\r");
+			}
+			else{
+				leds_set(1,0,0);
+				uart_print("On!\n\r");
+			}
+		}
+	}
+	else{
+		
+		corrupted_data = 0;
+		
+		uart_activated = 1; //New code
+		last_value = rx;
+	}
+	
+	gpio_set(P_DBG_ISR, 0);
+	
+}
+
+void button_pressed_isr(int src){
+	
+    gpio_set(P_DBG_ISR,1);
+	
+		if (uart_activated){
+			corrupted_data = 1;
+		}
+			
+
+		if(src & GET_PIN_INDEX(P_SW)){  
+				counter++;
+		
+			if( gpio_get(P_LED_R) ){
+					leds_set(0,0,0);
+					uart_print("Off!\n\r");
+			}
+			else {
+					leds_set(1,0,0);
+					uart_print("On!\n\r");
+			}
+		
+			char word[20];
+			sprintf(word,"Counter: %d\n\r", counter);
+			uart_print(word);
+	}
+    gpio_set(P_DBG_ISR, 0);
+
+}
+
+
+
+int main(void){
+	
+		// Initializing leds light and seting to off.
+    leds_init();
+    leds_set(0,0,0);
+
+		// Initializing and enabling uart channel.
+		uart_init(115200);
+    uart_enable();
+
+	
+		__enable_irq();
+
+	
+    gpio_set_mode(P_DBG_ISR,Output);
+    gpio_set_mode(P_DBG_MAIN,Output);
+
+    gpio_set_mode(P_SW, PullUp); 
+    gpio_set_trigger(P_SW, Rising);
+
+    gpio_set_callback(P_SW,button_pressed_isr );
+		uart_set_rx_callback(uart_receive_isr);
+		
+		int button_priority = NVIC_GetPriority(EXTI15_10_IRQn);
+			
+		NVIC_SetPriority(USART2_IRQn, button_priority + 1);
+		gpio_get(P_SW);
+
+    while(1){}
+
+}
