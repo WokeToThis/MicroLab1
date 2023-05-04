@@ -1,6 +1,9 @@
 # MicroLab1
 For the 2nd lab of Microprocessors
 
+Αχιλλέας Αραμπατζής 10023
+Γιάννης Θεοδωράκης 9957
+
 
 Κώδικας:
 
